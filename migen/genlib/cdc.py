@@ -212,20 +212,25 @@ class Gearbox(Module):
         # # #
 
         rst = Signal()
+        rst_write = Signal()
+        rst_read = Signal()
         cd_write = ClockDomain()
         cd_read = ClockDomain()
         self.comb += [
             rst.eq(ResetSignal(idomain) | ResetSignal(odomain)),
             cd_write.clk.eq(ClockSignal(idomain)),
             cd_read.clk.eq(ClockSignal(odomain)),
-            cd_write.rst.eq(rst),
-            cd_read.rst.eq(rst)
+            cd_write.rst.eq(rst_write),
+            cd_read.rst.eq(rst_read)
         ]
+        self.sync.write += rst_write.eq(rst)
+        self.sync.read += rst_read.eq(rst)
         self.clock_domains += cd_write, cd_read
 
-        storage = Signal(2*lcm(iwidth, owidth), reset_less=True)
-        wrchunks = len(storage)//iwidth
-        rdchunks = len(storage)//owidth
+        storage_wr = Signal(2 * lcm(iwidth, owidth), reset_less=True)
+        storage_rd = Signal(2 * lcm(iwidth, owidth), reset_less=True)
+        wrchunks = len(storage_wr)//iwidth
+        rdchunks = len(storage_rd)//owidth
         wrpointer = Signal(max=wrchunks, reset=0 if iwidth > owidth else wrchunks//2)
         rdpointer = Signal(max=rdchunks, reset=rdchunks//2 if iwidth > owidth else 0)
 
@@ -237,10 +242,10 @@ class Gearbox(Module):
             )
         cases = {}
         for i in range(wrchunks):
-            cases[i] = [storage[iwidth*i:iwidth*(i+1)].eq(self.i)]
+            cases[i] = [storage_wr[iwidth*i:iwidth*(i+1)].eq(self.i)]
         self.sync.write += Case(wrpointer, cases)
 
-
+        self.sync.read += storage_rd.eq(storage_wr) # decouple read from write logic
         self.sync.read += \
             If(rdpointer == rdchunks-1,
                 rdpointer.eq(0)
@@ -249,5 +254,5 @@ class Gearbox(Module):
             )
         cases = {}
         for i in range(rdchunks):
-            cases[i] = [self.o.eq(storage[owidth*i:owidth*(i+1)])]
+            cases[i] = [self.o.eq(storage_rd[owidth*i:owidth*(i+1)])]
         self.sync.read += Case(rdpointer, cases)
